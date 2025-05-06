@@ -109,36 +109,36 @@ with st.expander("🔎 Xem dữ liệu top 100 coin:"):
         # ===== STYLE CSS =====
         st.markdown("""
         <style>
-        .table-container {
-            max-height: 600px;
-            overflow-y: auto;
-            border: 1px solid #444;
-        }
-        table {
-            border-collapse: collapse;
-            width: 100%;
-        }
-        th {
-            position: sticky;
-            top: 0;
-            background-color: #202020;
-            color: white;
-            padding: 6px 8px;
-            font-weight: bold;
-            font-family: Roboto, sans-serif;
-            font-size: 14px;
-            text-align: center;
-            z-index: 1;
-        }
-        td {
-            padding: 6px 8px;
-            font-family: Roboto, sans-serif;
-            font-size: 13px;
-            color: white;
-        }
-        td.left { text-align: left; }
-        td.center { text-align: center; }
-        td.right { text-align: right; }
+            .table-container {
+                max-height: 600px;
+                overflow-y: auto;
+                border: 1px solid #444;
+            }
+            table {
+                border-collapse: collapse;
+                width: 100%;
+            }
+            thead th {
+                position: sticky;
+                top: 0;
+                background-color: #202020;
+                color: white;
+                padding: 6px 8px;
+                font-weight: bold;
+                font-family: Roboto, sans-serif;
+                font-size: 14px;
+                text-align: center !important;  /* ← mạnh hơn */
+                z-index: 1;
+            }
+            td {
+                padding: 6px 8px;
+                font-family: Roboto, sans-serif;
+                font-size: 13px;
+                color: white;
+            }
+            td.left { text-align: left; }
+            td.center { text-align: center; }
+            td.right { text-align: right; }
         </style>
         """, unsafe_allow_html=True)
 
