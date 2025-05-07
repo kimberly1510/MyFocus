@@ -1,3 +1,4 @@
+
 import streamlit as st
 import requests
 import pandas as pd
@@ -13,16 +14,18 @@ HEADERS = {"Accepts": "application/json", "X-CMC_PRO_API_KEY": CMC_API_KEY}
 @st.cache_data(ttl=86400)
 def get_cmc_zone_tokens():
     url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/categories"
-    st.markdown(f"⏩ Đang gọi API: `{url}`")
-
     try:
+        st.markdown(f"🛰️ Đang gọi API: `{url}`")
         res = requests.get(url, headers=HEADERS)
-        st.markdown(f"✅ Status code: `{res.status_code}`")
-        st.markdown("📥 Response text:")
-        st.code(res.text[:1000])  # hiển thị phần đầu JSON hoặc lỗi (giới hạn 1000 ký tự)
+        st.success(f"✅ Status code: {res.status_code}")
+        st.markdown("📋 Response text:")
+        st.code(res.text)
 
-        res.raise_for_status()  # ném lỗi nếu không 200
-        data = res.json()["data"]
+        res.raise_for_status()
+        data = res.json().get("data", [])
+        if not data:
+            st.warning("⚠️ API phản hồi không có dữ liệu trong trường `data`.")
+            return pd.DataFrame()
 
         all_rows = []
         for category in data:
@@ -33,7 +36,7 @@ def get_cmc_zone_tokens():
         df = pd.DataFrame(all_rows)
         return df
     except Exception as e:
-        st.error(f"❌ Exception: {e}")
+        st.error(f"Lỗi khi lấy Zone từ CoinMarketCap: {e}")
         return pd.DataFrame()
 
 # ========== COINGECKO: LẤY GIÁ & VOLUME THEO TOKEN ==========
