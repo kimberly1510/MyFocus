@@ -1,111 +1,116 @@
 import streamlit as st
 import requests
 import pandas as pd
+import time
 
 st.set_page_config(page_title="Crypto Zone Tracker", layout="wide")
 st.title("📊 HUNTERS X HUNTERS")
 
-# ========== GET DATA FROM BINANCE ==========
-# (Tạm thời bỏ cache để debug)
-def get_zone_data():
-    url = "https://www.binance.com/bapi/asset/v2/public/asset-service/product/get-products"
-    headers = {"User-Agent": "Mozilla/5.0"}
+# ========== CONFIG ==========
+CMC_API_KEY = st.secrets["CMC_API_KEY"]
+HEADERS = {"Accepts": "application/json", "X-CMC_PRO_API_KEY": CMC_API_KEY}
+
+# ========== CMC: LẤY DANH SÁCH ZONE & TOKEN (MỖI 24H) ==========
+@st.cache_data(ttl=86400)
+def get_cmc_zone_tokens():
+    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/category"
     try:
-        res = requests.get(url, headers=headers)
+        res = requests.get(url, headers=HEADERS)
         res.raise_for_status()
-        data = res.json().get("data", [])
-        df = pd.DataFrame(data)
+        data = res.json()["data"]
 
-        if df.empty:
-            st.error("❌ Không có dữ liệu từ API Binance.")
-            return pd.DataFrame()
+        # Gộp dữ liệu từ các zone
+        all_rows = []
+        for category in data:
+            zone = category["name"]
+            for token in category.get("coins", []):
+                all_rows.append({"zone": zone, "token": token})
 
-        # Debug cột có sẵn
-        st.subheader("📦 Debug: Thông tin DataFrame")
-        st.write("📌 Các cột có trong df:", df.columns.tolist())
-        st.dataframe(df.head())
-
-        # Gán zone từ 'cs' nếu có
-        if "cs" in df.columns:
-            df["zone"] = df["cs"]
-        elif "tags" in df.columns:
-            df["zone"] = df["tags"].apply(lambda x: x[0] if isinstance(x, list) and x else "Unknown")
-        else:
-            st.error("❌ Không tìm thấy 'cs' hoặc 'tags' để xác định zone.")
-            return pd.DataFrame()
-
-        # Chỉ lấy các cặp USDT đang giao dịch
-        df = df[(df["s"].str.endswith("USDT")) & (df["st"] == "TRADING")]
-
-        df["token"] = df["b"]
-        df["symbol"] = df["s"]
-        df["price"] = pd.to_numeric(df["c"], errors="coerce")
-        df["vol_24h"] = pd.to_numeric(df["v"], errors="coerce")
-        df["price_change_24h"] = pd.to_numeric(df["p"], errors="coerce")
-
-        # Kiểm tra 'cr' có tồn tại không
-        if "cr" in df.columns:
-            df["vol_change_24h"] = pd.to_numeric(df["cr"], errors="coerce")
-        else:
-            st.warning("⚠️ Dữ liệu không có cột 'cr' (Volume Change 24H), sẽ bỏ qua phần này.")
-            df["vol_change_24h"] = None
-
-        df = df.dropna(subset=["zone", "price_change_24h"])
+        df = pd.DataFrame(all_rows)
         return df
-
     except Exception as e:
-        st.error(f"Lỗi khi lấy dữ liệu từ Binance: {e}")
+        st.error(f"Lỗi khi lấy Zone từ CoinMarketCap: {e}")
         return pd.DataFrame()
 
-# ========== LOAD DATA ==========
-df_all = get_zone_data()
+# ========== COINGECKO: LẤY GIÁ & VOLUME THEO TOKEN ==========
+@st.cache_data(ttl=300)
+def get_prices_from_coingecko(tokens):
+    url = "https://api.coingecko.com/api/v3/simple/price"
+    token_ids = ",".join(tokens)
+    params = {
+        "ids": token_ids,
+        "vs_currencies": "usd",
+        "include_24hr_vol": "true",
+        "include_24hr_change": "true"
+    }
+    try:
+        res = requests.get(url, params=params)
+        res.raise_for_status()
+        return res.json()
+    except Exception as e:
+        st.error(f"Lỗi khi lấy dữ liệu từ CoinGecko: {e}")
+        return {}
 
-if "zone" in df_all.columns:
-    zone_stats = (
-        df_all.groupby("zone")
-        .agg(
-            avg_price_change_24h=("price_change_24h", "mean"),
-            avg_vol_change_24h=("vol_change_24h", "mean")
-        )
-        .reset_index()
-        .sort_values("avg_price_change_24h", ascending=False)
-    )
-else:
-    st.error("❌ Không có cột 'zone' trong dữ liệu.")
+# ========== LOAD & MERGE ==========
+df_zone_map = get_cmc_zone_tokens()
+
+if df_zone_map.empty:
+    st.error("❌ Không lấy được danh sách Zone từ CoinMarketCap.")
     st.stop()
 
-# ========== LAYOUT 2:3 ==========
+unique_tokens = df_zone_map["token"].dropna().str.lower().unique().tolist()
+price_data = get_prices_from_coingecko(unique_tokens)
+
+# Merge lại bảng tổng hợp
+df_zone_map["token_lc"] = df_zone_map["token"].str.lower()
+df_zone_map["price"] = df_zone_map["token_lc"].apply(lambda x: price_data.get(x, {}).get("usd"))
+df_zone_map["volume_24h"] = df_zone_map["token_lc"].apply(lambda x: price_data.get(x, {}).get("usd_24h_vol"))
+df_zone_map["change_24h"] = df_zone_map["token_lc"].apply(lambda x: price_data.get(x, {}).get("usd_24h_change"))
+
+# ========== TỔNG HỢP ZONE ==========
+zone_stats = (
+    df_zone_map.dropna(subset=["price", "change_24h"])
+    .groupby("zone")
+    .agg(
+        avg_price_change_24h=("change_24h", "mean"),
+        avg_volume_24h=("volume_24h", "sum"),
+        token_count=("token", "count")
+    )
+    .reset_index()
+    .sort_values("avg_price_change_24h", ascending=False)
+)
+
+# ========== HIỂN THỊ GIAO DIỆN ==========
 col1, col2 = st.columns([2, 3])
 
 with col1:
-    st.subheader("📦 Tổng quan theo Zone")
+    st.subheader("📦 Tổng quan Zone")
     selected_zone = st.selectbox("🔍 Chọn Zone:", zone_stats["zone"].tolist())
 
-    st.markdown("### 📈 Thống kê biến động theo Zone")
     st.dataframe(
         zone_stats.rename(columns={
             "zone": "Zone",
             "avg_price_change_24h": "Avg Price Change 24H (%)",
-            "avg_vol_change_24h": "Avg Volume Change 24H (%)"
+            "avg_volume_24h": "Total Volume 24H",
+            "token_count": "Số lượng Token"
         }).style.format({
             "Avg Price Change 24H (%)": "{:+.2f}%",
-            "Avg Volume Change 24H (%)": "{:+.2f}%"
+            "Total Volume 24H": "{:,.0f}"
         }),
         use_container_width=True
     )
 
 with col2:
     st.subheader(f"📈 Token trong Zone: `{selected_zone}`")
-    df_zone = df_all[df_all["zone"] == selected_zone].copy()
+    df_zone = df_zone_map[df_zone_map["zone"] == selected_zone].copy()
 
     if not df_zone.empty:
-        df_zone_display = df_zone[["token", "price", "vol_change_24h", "vol_24h"]].copy()
-        df_zone_display.columns = ["Token", "Current Price", "Volume Change 24H (%)", "Current Volume (M)"]
+        df_zone_display = df_zone[["token", "price", "change_24h", "volume_24h"]].copy()
+        df_zone_display.columns = ["Token", "Current Price", "Price Change 24H (%)", "Volume 24H"]
 
         df_zone_display["Current Price"] = df_zone_display["Current Price"].apply(lambda x: f"{x:,.4f}$")
-        df_zone_display["Volume Change 24H (%)"] = df_zone_display["Volume Change 24H (%)"].apply(
-            lambda x: f"{x:+.2f}%" if pd.notnull(x) else "N/A")
-        df_zone_display["Current Volume (M)"] = df_zone_display["Current Volume (M)"].apply(lambda x: f"{x / 1e6:.1f}M")
+        df_zone_display["Price Change 24H (%)"] = df_zone_display["Price Change 24H (%)"].apply(lambda x: f"{x:+.2f}%")
+        df_zone_display["Volume 24H"] = df_zone_display["Volume 24H"].apply(lambda x: f"{x:,.0f}")
 
         st.dataframe(df_zone_display, use_container_width=True)
     else:
