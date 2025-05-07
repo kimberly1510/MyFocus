@@ -1,7 +1,7 @@
-
 import streamlit as st
 import requests
 import pandas as pd
+import time
 
 st.set_page_config(page_title="Crypto Zone Tracker", layout="wide")
 st.title("📊 HUNTERS X HUNTERS")
@@ -15,23 +15,24 @@ HEADERS = {"Accepts": "application/json", "X-CMC_PRO_API_KEY": CMC_API_KEY}
 def get_cmc_zone_tokens():
     url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/categories"
     try:
-        st.markdown(f"🛰️ Đang gọi API: `{url}`")
         res = requests.get(url, headers=HEADERS)
-        st.success(f"✅ Status code: {res.status_code}")
-        st.markdown("📋 Response text:")
-        st.code(res.text)
-
         res.raise_for_status()
+
+        st.markdown(f"🛰️ Đang gọi API: `{url}`")
+        st.success(f"✅ Status code: {res.status_code}")
+        st.code(res.text, language="json")
+
         data = res.json().get("data", [])
         if not data:
-            st.warning("⚠️ API phản hồi không có dữ liệu trong trường `data`.")
             return pd.DataFrame()
 
         all_rows = []
         for category in data:
-            zone = category["name"]
-            for token in category.get("coins", []):
-                all_rows.append({"zone": zone, "token": token})
+            zone = category.get("name", "")
+            top_coins = category.get("top_3_coins", [])
+            for coin_url in top_coins:
+                coin_id = coin_url.split("/")[-1].replace(".png", "")
+                all_rows.append({"zone": zone, "token_id": coin_id})
 
         df = pd.DataFrame(all_rows)
         return df
@@ -41,14 +42,15 @@ def get_cmc_zone_tokens():
 
 # ========== COINGECKO: LẤY GIÁ & VOLUME THEO TOKEN ==========
 @st.cache_data(ttl=300)
-def get_prices_from_coingecko(tokens):
-    url = "https://api.coingecko.com/api/v3/simple/price"
-    token_ids = ",".join(tokens)
+def get_prices_from_coingecko(token_ids):
+    url = "https://api.coingecko.com/api/v3/coins/markets"
     params = {
-        "ids": token_ids,
-        "vs_currencies": "usd",
-        "include_24hr_vol": "true",
-        "include_24hr_change": "true"
+        "vs_currency": "usd",
+        "ids": ",".join(token_ids),
+        "order": "market_cap_desc",
+        "per_page": 250,
+        "page": 1,
+        "price_change_percentage": "24h"
     }
     try:
         res = requests.get(url, params=params)
@@ -56,7 +58,7 @@ def get_prices_from_coingecko(tokens):
         return res.json()
     except Exception as e:
         st.error(f"Lỗi khi lấy dữ liệu từ CoinGecko: {e}")
-        return {}
+        return []
 
 # ========== LOAD & MERGE ==========
 df_zone_map = get_cmc_zone_tokens()
@@ -65,23 +67,23 @@ if df_zone_map.empty:
     st.error("❌ Không lấy được danh sách Zone từ CoinMarketCap.")
     st.stop()
 
-unique_tokens = df_zone_map["token"].dropna().str.lower().unique().tolist()
-price_data = get_prices_from_coingecko(unique_tokens)
+unique_token_ids = df_zone_map["token_id"].dropna().unique().tolist()
+price_data = get_prices_from_coingecko(unique_token_ids)
+
+price_df = pd.DataFrame(price_data)
+price_df = price_df.rename(columns={"id": "token_id"})
 
 # Merge lại bảng tổng hợp
-df_zone_map["token_lc"] = df_zone_map["token"].str.lower()
-df_zone_map["price"] = df_zone_map["token_lc"].apply(lambda x: price_data.get(x, {}).get("usd"))
-df_zone_map["volume_24h"] = df_zone_map["token_lc"].apply(lambda x: price_data.get(x, {}).get("usd_24h_vol"))
-df_zone_map["change_24h"] = df_zone_map["token_lc"].apply(lambda x: price_data.get(x, {}).get("usd_24h_change"))
+merged_df = pd.merge(df_zone_map, price_df, on="token_id", how="left")
+merged_df = merged_df.dropna(subset=["current_price", "price_change_percentage_24h"])
 
 # ========== TỔNG HỢP ZONE ==========
 zone_stats = (
-    df_zone_map.dropna(subset=["price", "change_24h"])
-    .groupby("zone")
+    merged_df.groupby("zone")
     .agg(
-        avg_price_change_24h=("change_24h", "mean"),
-        avg_volume_24h=("volume_24h", "sum"),
-        token_count=("token", "count")
+        avg_price_change_24h=("price_change_percentage_24h", "mean"),
+        avg_volume_24h=("total_volume", "sum"),
+        token_count=("token_id", "count")
     )
     .reset_index()
     .sort_values("avg_price_change_24h", ascending=False)
@@ -109,10 +111,10 @@ with col1:
 
 with col2:
     st.subheader(f"📈 Token trong Zone: `{selected_zone}`")
-    df_zone = df_zone_map[df_zone_map["zone"] == selected_zone].copy()
+    df_zone = merged_df[merged_df["zone"] == selected_zone].copy()
 
     if not df_zone.empty:
-        df_zone_display = df_zone[["token", "price", "change_24h", "volume_24h"]].copy()
+        df_zone_display = df_zone[["name", "current_price", "price_change_percentage_24h", "total_volume"]].copy()
         df_zone_display.columns = ["Token", "Current Price", "Price Change 24H (%)", "Volume 24H"]
 
         df_zone_display["Current Price"] = df_zone_display["Current Price"].apply(lambda x: f"{x:,.4f}$")
