@@ -13,13 +13,12 @@ HEADERS = {"Accepts": "application/json", "X-CMC_PRO_API_KEY": CMC_API_KEY}
 # ========== CMC: LẤY DANH SÁCH ZONE & TOKEN (MỖI 24H) ==========
 @st.cache_data(ttl=86400)
 def get_cmc_zone_tokens():
-    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/category"
+    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/categories"
     try:
         res = requests.get(url, headers=HEADERS)
         res.raise_for_status()
         data = res.json()["data"]
 
-        # Gộp dữ liệu từ các zone
         all_rows = []
         for category in data:
             zone = category["name"]
