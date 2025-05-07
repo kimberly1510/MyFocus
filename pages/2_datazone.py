@@ -1,6 +1,7 @@
+import streamlit as st
 import requests
 import pandas as pd
-import datetime
+from datetime import datetime
 
 # API key và headers cho CoinMarketCap
 CMC_API_KEY = "YOUR_CMC_API_KEY"
@@ -9,7 +10,7 @@ HEADERS = {
     "X-CMC_PRO_API_KEY": CMC_API_KEY
 }
 
-# Hàm lấy dữ liệu Zone từ CoinMarketCap (bổ sung thêm thời gian cập nhật)
+# Hàm lấy dữ liệu Zone từ CoinMarketCap
 def get_zones_from_cmc():
     url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/category"
     params = {
@@ -39,12 +40,29 @@ def get_zones_from_cmc():
     df["Last Updated"] = pd.to_datetime(df["Last Updated"])
     return df
 
-# Gọi hàm và xuất dữ liệu ra file Excel
-if __name__ == "__main__":
-    try:
-        df = get_zones_from_cmc()
-        now = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-        df.to_excel(f"zone_data_cmc_{now}.xlsx", index=False)
-        print("Dữ liệu đã được lưu thành công.")
-    except Exception as e:
-        print("Lỗi khi lấy dữ liệu:", e)
+# Giao diện Streamlit
+st.set_page_config(page_title="DataZone Monitor", layout="wide")
+st.title("📊 CoinMarketCap DataZone Tracker")
+
+st.write("Đang tải dữ liệu từ CoinMarketCap...")
+
+try:
+    df = get_zones_from_cmc()
+    st.success("✅ Dữ liệu đã được tải thành công!")
+    st.dataframe(df, use_container_width=True)
+
+    # Tải xuống Excel
+    now = datetime.now().strftime("%Y%m%d_%H%M")
+    file_name = f"zone_data_cmc_{now}.xlsx"
+    df.to_excel(file_name, index=False)
+
+    with open(file_name, "rb") as f:
+        st.download_button(
+            label="📥 Tải Excel dữ liệu Zone",
+            data=f,
+            file_name=file_name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+except Exception as e:
+    st.error(f"❌ Lỗi khi tải dữ liệu: {e}")
