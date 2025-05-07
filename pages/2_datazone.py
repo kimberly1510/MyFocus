@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 
 # API key và headers cho CoinMarketCap
-CMC_API_KEY = "YOUR_CMC_API_KEY"
+CMC_API_KEY = "8d7eaab9-7d77-446c-9f0e-8feaae5a734b"
 HEADERS = {
     "Accepts": "application/json",
     "X-CMC_PRO_API_KEY": CMC_API_KEY
