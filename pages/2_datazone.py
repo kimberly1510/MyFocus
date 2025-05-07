@@ -41,8 +41,14 @@ def get_zone_data():
         df["symbol"] = df["s"]
         df["price"] = pd.to_numeric(df["c"], errors="coerce")
         df["vol_24h"] = pd.to_numeric(df["v"], errors="coerce")
-        df["vol_change_24h"] = pd.to_numeric(df["cr"], errors="coerce")
         df["price_change_24h"] = pd.to_numeric(df["p"], errors="coerce")
+
+        # Kiểm tra 'cr' có tồn tại không
+        if "cr" in df.columns:
+            df["vol_change_24h"] = pd.to_numeric(df["cr"], errors="coerce")
+        else:
+            st.warning("⚠️ Dữ liệu không có cột 'cr' (Volume Change 24H), sẽ bỏ qua phần này.")
+            df["vol_change_24h"] = None
 
         df = df.dropna(subset=["zone", "price_change_24h"])
         return df
@@ -97,7 +103,8 @@ with col2:
         df_zone_display.columns = ["Token", "Current Price", "Volume Change 24H (%)", "Current Volume (M)"]
 
         df_zone_display["Current Price"] = df_zone_display["Current Price"].apply(lambda x: f"{x:,.4f}$")
-        df_zone_display["Volume Change 24H (%)"] = df_zone_display["Volume Change 24H (%)"].apply(lambda x: f"{x:+.2f}%")
+        df_zone_display["Volume Change 24H (%)"] = df_zone_display["Volume Change 24H (%)"].apply(
+            lambda x: f"{x:+.2f}%" if pd.notnull(x) else "N/A")
         df_zone_display["Current Volume (M)"] = df_zone_display["Current Volume (M)"].apply(lambda x: f"{x / 1e6:.1f}M")
 
         st.dataframe(df_zone_display, use_container_width=True)
